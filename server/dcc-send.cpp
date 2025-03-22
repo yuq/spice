@@ -2379,19 +2379,47 @@ static void marshall_gl_scanout(DisplayChannelClient *dcc,
 
     QXLGLScanout *scanout = red_qxl_get_gl_scanout(qxl);
     if (scanout != nullptr) {
-        if (scanout->num_planes == 1) {
-            SpiceMsgDisplayGlScanoutUnix msg;
-            msg.drm_dma_buf_fd = scanout->fd[0];
-            msg.width = scanout->width;
-            msg.height = scanout->height;
-            msg.stride = scanout->stride[0];
-            msg.drm_fourcc_format = scanout->fourcc;
-            msg.flags = scanout->flags;
+        if (dcc->test_remote_cap(SPICE_DISPLAY_CAP_GL_SCANOUT2)) {
+            struct {
+                SpiceMsgDisplayGlScanout2Unix base;
+                int _pad_for_fds[4];
+            } _msg;
+            SpiceMsgDisplayGlScanout2Unix *msg = &_msg.base;
 
-            dcc->init_send_data(SPICE_MSG_DISPLAY_GL_SCANOUT_UNIX);
-            spice_marshall_msg_display_gl_scanout_unix(m, &msg);
+            msg->width = scanout->width;
+            msg->height = scanout->height;
+            msg->fourcc = scanout->fourcc;
+            msg->flags = scanout->flags;
+            msg->modifier = scanout->modifier;
+            msg->num_planes = scanout->num_planes;
+            msg->num_dmabuf = 0;
+
+            for (int i = 0; i < 4; i++) {
+                msg->fd[i] = scanout->fd[i];
+                msg->offset[i] = scanout->offset[i];
+                msg->stride[i] = scanout->stride[i];
+                if (scanout->fd[i] >= 0) {
+                    msg->num_dmabuf++;
+                }
+            }
+
+            dcc->init_send_data(SPICE_MSG_DISPLAY_GL_SCANOUT2_UNIX);
+            spice_marshall_msg_display_gl_scanout2_unix(m, msg);
         } else {
-            spice_error("gl scanout does not support multi plane");
+            if (scanout->num_planes == 1) {
+                SpiceMsgDisplayGlScanoutUnix msg;
+                msg.drm_dma_buf_fd = scanout->fd[0];
+                msg.width = scanout->width;
+                msg.height = scanout->height;
+                msg.stride = scanout->stride[0];
+                msg.drm_fourcc_format = scanout->fourcc;
+                msg.flags = scanout->flags;
+
+                dcc->init_send_data(SPICE_MSG_DISPLAY_GL_SCANOUT_UNIX);
+                spice_marshall_msg_display_gl_scanout_unix(m, &msg);
+            } else {
+                spice_error("gl scanout client does not support multi plane");
+            }
         }
     }
     red_qxl_put_gl_scanout(qxl, scanout);
